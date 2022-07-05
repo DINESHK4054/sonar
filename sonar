@@ -1,0 +1,111 @@
+import sg.com.ncs.devops.CommonUtilities
+import sg.com.ncs.devops.TalendUtilities
+import sg.com.ncs.devops.UtilJobNames
+
+def call(Map config) {
+  pipeline {
+    agent { label config.nodeName }
+    options {
+        buildDiscarder(logRotator(numToKeepStr: config.numBuildToKeep))
+        skipDefaultCheckout()
+        disableConcurrentBuilds()
+    }
+    stages {
+      stage('Clean Workspace') {
+            steps {
+                script {
+                    sh 'rm -rf *'
+                }
+            }
+        }
+
+        stage('Checkout') {
+            steps {
+                script {
+                    checkout scm
+                }
+            }
+        }
+      stage('Check Branch Name is Valid') {
+        steps {
+          script {
+            CommonUtilities.checkIsValidBranchName this
+          }
+        }
+      }
+      /*stage('Build & Unit Test') {
+        steps {
+          script {
+            if(config.mvnParameter != null)
+                CommonUtilities.mvn this, "clean package ${config.mvnParameter}"
+            else
+                CommonUtilities.mvn this, "clean package"
+          }
+        }
+      }*/
+      /*stage('SonarQube analysis') {
+        steps {
+          script {
+            CommonUtilities.sonarqube this
+          }
+        }
+      }
+      stage('Quality Gate') {
+        when { not { equals expected: false, actual: config.sonarQualityGate } }
+        steps {
+          script {
+            CommonUtilities.qualityGate this
+          }
+        }
+      }*/
+      stage('AppScan') {
+          steps {
+              script {
+                  echo 'AppScan'
+              }
+          }
+      }
+      stage('Prepare Talend Project Package') {
+          when { anyOf { branch 'dev'; branch 'master'; branch 'sit'; branch 'uat'; branch 'stg'; branch 'prod' } }
+          steps {
+              script {
+                    TalendUtilities.prepareTalendDeploymentPackage this, "${config.gitOldTag}"
+              }
+          }
+      }
+      stage('Deploy Release Package to Artifactory') {
+          when {  anyOf { branch 'dev'; branch 'master'; branch 'sit'; branch 'uat'; branch 'stg'; branch 'prod' } }
+          steps {
+              script {
+                    CommonUtilities.deployPackageToArtifactory this
+              }
+          }
+      }    
+      
+      stage('Create Tag in GitLab') {
+          when { anyOf { branch 'dev'; branch 'master'; branch 'sit'; branch 'uat'; branch 'stg'; branch 'prod' } }
+          steps {
+              script {
+                    CommonUtilities.createTaginGitLab this
+              }
+          }
+      }
+      stage('Run the Util Job') {
+        steps {
+                script {
+                    build job: UtilJobNames.list_artifactory_images, wait: true
+                }
+            }        
+      }
+    }
+    post {
+        always {
+            script {
+                //CommonUtilities.postBuildStatusToJiraIssue this
+                echo 'Clean up workspace'
+                sh 'rm -rf *'
+            }
+        }
+    }
+  }
+}
